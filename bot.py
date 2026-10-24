@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 
 from flask import Flask
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, TelegramError
 from telegram.ext import (
@@ -96,6 +96,8 @@ TEXTS = {
         "cannot_cancel": "Эту заявку уже нельзя отменить.",
         "question_prompt": "Напиши свой вопрос одним сообщением.",
         "question_sent": "Вопрос отправлен. Я отвечу тебе в чате.",
+        "help": "Я принимаю заявки на сайты и Telegram-ботов.\n\nВыбери услугу в главном меню или свяжись со мной напрямую: {contact}",
+        "empty_input": "Ответ не может быть пустым.",
         "cancelled": "Действие отменено.",
         "too_long": "Слишком длинно. Максимум {limit} символов.",
         "admin_only": "Доступ запрещён.",
@@ -149,6 +151,8 @@ TEXTS = {
         "cannot_cancel": "This request can no longer be cancelled.",
         "question_prompt": "Send your question in one message.",
         "question_sent": "Your question has been sent. I will reply in this chat.",
+        "help": "I take requests for websites and Telegram bots.\n\nChoose a service in the main menu or contact me directly: {contact}",
+        "empty_input": "The answer can't be empty.",
         "cancelled": "Action cancelled.",
         "too_long": "Too long. Maximum {limit} characters.",
         "admin_only": "Access denied.",
@@ -336,20 +340,24 @@ def main_menu_keyboard(lang, user_id):
     return InlineKeyboardMarkup(rows)
 
 
-def cancel_keyboard(lang):
-    return InlineKeyboardMarkup(
-        [[InlineKeyboardButton(tr(lang, "btn_cancel"), callback_data="flow:cancel")]]
-    )
-
-
 def menu_button(lang):
     return InlineKeyboardButton(tr(lang, "btn_main_menu"), callback_data="menu:main")
+
+
+def cancel_keyboard(lang):
+    return InlineKeyboardMarkup(
+        [
+            [menu_button(lang)],
+            [InlineKeyboardButton(tr(lang, "btn_cancel"), callback_data="flow:cancel")],
+        ]
+    )
 
 
 def summary_keyboard(lang):
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton(tr(lang, "btn_submit"), callback_data="order:submit")],
+            [menu_button(lang)],
             [InlineKeyboardButton(tr(lang, "btn_cancel"), callback_data="flow:cancel")],
         ]
     )
@@ -560,7 +568,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [
                 InlineKeyboardButton("🇷🇺 Русский", callback_data="lang:ru"),
                 InlineKeyboardButton("🇬🇧 English", callback_data="lang:en"),
-            ]
+            ],
+            [menu_button(lang)],
         ]
     )
     await update.effective_message.reply_text(tr(lang, "choose_language"), reply_markup=keyboard)
@@ -581,16 +590,31 @@ async def choose_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await safe_edit(query, tr(lang, "main_menu"), main_menu_keyboard(lang, update.effective_user.id))
 
 
-async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
+async def open_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.pop("order", None)
+    context.user_data.pop("question", None)
     lang = get_lang(context)
-    if query.data == "menu:main":
+    if update.callback_query:
+        query = update.callback_query
         await query.answer()
         await safe_edit(
             query,
             tr(lang, "main_menu"),
             main_menu_keyboard(lang, update.effective_user.id),
         )
+    else:
+        await update.effective_message.reply_text(
+            tr(lang, "main_menu"),
+            reply_markup=main_menu_keyboard(lang, update.effective_user.id),
+        )
+    return ConversationHandler.END
+
+
+async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    lang = get_lang(context)
+    if query.data == "menu:main":
+        await open_main_menu(update, context)
     elif query.data == "menu:orders":
         await query.answer()
         text, keyboard = build_my_orders(update.effective_user.id, lang)
@@ -602,6 +626,15 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         text, keyboard = build_admin_panel(lang)
         await safe_edit(query, text, keyboard)
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = get_lang(context)
+    await update.effective_message.reply_text(
+        tr(lang, "help", contact=contact_link()),
+        reply_markup=InlineKeyboardMarkup([[menu_button(lang)]]),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 async def cancel_client_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -688,6 +721,12 @@ async def start_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def set_project_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_lang(context)
     value = update.message.text.strip()
+    if not value:
+        await update.message.reply_text(
+            tr(lang, "empty_input"),
+            reply_markup=cancel_keyboard(lang),
+        )
+        return PROJECT_TYPE
     if len(value) > MAX_PROJECT_TYPE:
         await update.message.reply_text(
             tr(lang, "too_long", limit=MAX_PROJECT_TYPE),
@@ -706,6 +745,12 @@ async def set_project_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def set_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_lang(context)
     value = update.message.text.strip()
+    if not value:
+        await update.message.reply_text(
+            tr(lang, "empty_input"),
+            reply_markup=cancel_keyboard(lang),
+        )
+        return BUDGET
     if len(value) > MAX_BUDGET:
         await update.message.reply_text(
             tr(lang, "too_long", limit=MAX_BUDGET),
@@ -724,6 +769,12 @@ async def set_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def set_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_lang(context)
     value = update.message.text.strip()
+    if not value:
+        await update.message.reply_text(
+            tr(lang, "empty_input"),
+            reply_markup=cancel_keyboard(lang),
+        )
+        return DESCRIPTION
     if len(value) > MAX_DESCRIPTION:
         await update.message.reply_text(
             tr(lang, "too_long", limit=MAX_DESCRIPTION),
@@ -742,6 +793,12 @@ async def set_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def set_deadline(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_lang(context)
     value = update.message.text.strip()
+    if not value:
+        await update.message.reply_text(
+            tr(lang, "empty_input"),
+            reply_markup=cancel_keyboard(lang),
+        )
+        return DEADLINE
     if len(value) > MAX_DEADLINE:
         await update.message.reply_text(
             tr(lang, "too_long", limit=MAX_DEADLINE),
@@ -783,7 +840,12 @@ async def submit_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await safe_edit(
         query,
         tr(lang, "order_success", contact=contact_link()),
-        InlineKeyboardMarkup([[menu_button(lang)]]),
+        InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton(tr(lang, "btn_orders"), callback_data="menu:orders")],
+                [menu_button(lang)],
+            ]
+        ),
     )
     context.user_data.pop("order", None)
     text = tr(
@@ -813,6 +875,12 @@ async def start_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def receive_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_lang(context)
     value = update.message.text.strip()
+    if not value:
+        await update.message.reply_text(
+            tr(lang, "empty_input"),
+            reply_markup=cancel_keyboard(lang),
+        )
+        return QUESTION
     if len(value) > MAX_QUESTION:
         await update.message.reply_text(
             tr(lang, "too_long", limit=MAX_QUESTION),
@@ -869,11 +937,25 @@ def run_flask():
     app.run(host="0.0.0.0", port=port)
 
 
+async def post_init(application: Application):
+    try:
+        await application.bot.set_my_commands(
+            [
+                BotCommand("start", "Выбрать язык / Choose language"),
+                BotCommand("menu", "Главное меню / Main menu"),
+                BotCommand("help", "Помощь / Help"),
+                BotCommand("cancel", "Отменить действие / Cancel"),
+            ]
+        )
+    except TelegramError:
+        logger.exception("Could not set bot commands")
+
+
 def main():
     if not TOKEN:
         raise RuntimeError("TELEGRAM_TOKEN is not set")
     init_db()
-    application = Application.builder().token(TOKEN).build()
+    application = Application.builder().token(TOKEN).post_init(post_init).build()
     conversation = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(start_order, pattern=r"^menu:(?:site|bot)$"),
@@ -888,7 +970,9 @@ def main():
             QUESTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_question)],
         },
         fallbacks=[
+            CallbackQueryHandler(open_main_menu, pattern=r"^menu:main$"),
             CallbackQueryHandler(cancel_flow, pattern=r"^flow:cancel$"),
+            CommandHandler("menu", open_main_menu),
             CommandHandler("cancel", cancel_flow),
             CommandHandler("start", start_flow),
         ],
@@ -899,6 +983,8 @@ def main():
     )
     application.add_handler(conversation)
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("menu", open_main_menu))
+    application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("cancel", cancel_flow))
     application.add_handler(CallbackQueryHandler(choose_language, pattern=r"^lang:(?:ru|en)$"))
     application.add_handler(CallbackQueryHandler(menu_router, pattern=r"^menu:(?:orders|admin|main)$"))
