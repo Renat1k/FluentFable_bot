@@ -2,10 +2,13 @@ import html
 import logging
 import os
 import sqlite3
+import threading
+import warnings
 from contextlib import closing
 from datetime import datetime, timezone
 from urllib.parse import quote
 
+from flask import Flask
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, TelegramError
@@ -17,6 +20,13 @@ from telegram.ext import (
     ConversationHandler,
     MessageHandler,
     filters,
+)
+from telegram.warnings import PTBUserWarning
+
+warnings.filterwarnings(
+    "ignore",
+    category=PTBUserWarning,
+    message=r".*per_message=False.*",
 )
 
 logging.basicConfig(
@@ -845,6 +855,20 @@ async def cancel_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+app = Flask(__name__)
+
+
+@app.route("/")
+@app.route("/health")
+def health():
+    return "Bot is running"
+
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
+
 def main():
     if not TOKEN:
         raise RuntimeError("TELEGRAM_TOKEN is not set")
@@ -869,6 +893,9 @@ def main():
             CommandHandler("start", start_flow),
         ],
         allow_reentry=True,
+        per_chat=True,
+        per_user=True,
+        per_message=False,
     )
     application.add_handler(conversation)
     application.add_handler(CommandHandler("start", start))
@@ -878,7 +905,8 @@ def main():
     application.add_handler(CallbackQueryHandler(cancel_client_order, pattern=r"^my:cancel:\d+$"))
     application.add_handler(CallbackQueryHandler(admin_router, pattern=ADMIN_CALLBACK_PATTERN))
     application.add_handler(CallbackQueryHandler(cancel_flow, pattern=r"^flow:cancel$"))
-    application.run_polling()
+    threading.Thread(target=run_flask, daemon=True).start()
+    application.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
