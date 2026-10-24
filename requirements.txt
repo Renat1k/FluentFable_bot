@@ -1,0 +1,1 @@
+python-telegram-bot[callback-data]==21.11.1
