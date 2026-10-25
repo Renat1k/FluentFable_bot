@@ -9,7 +9,14 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 
 from flask import Flask
-from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    BotCommand,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    Update,
+)
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, TelegramError
 from telegram.ext import (
@@ -62,6 +69,12 @@ MAX_DESCRIPTION = 800
 MAX_DEADLINE = 100
 MAX_QUESTION = 2000
 ADMIN_CALLBACK_PATTERN = r"^adm:(?:panel|list:\d+|view:\d+:\d+|set:\d+:(?:new|in_progress|done):\d+)$"
+REPLY_LANGUAGE_PATTERN = r"^(?:🇷🇺 Язык|🇬🇧 Language)$"
+REPLY_MENU_PATTERN = r"^(?:🏠 Меню|🏠 Menu)$"
+REPLY_QUESTION_PATTERN = r"^(?:❓ Задать вопрос|❓ Ask a question)$"
+REPLY_CREATE_PATTERN = r"^(?:📝 Создать|📝 Create)$"
+REPLY_KEYBOARD_PATTERN = r"^(?:🇷🇺 Язык|🇬🇧 Language|🏠 Меню|🏠 Menu|❓ Задать вопрос|❓ Ask a question|📝 Создать|📝 Create)$"
+TEXT_INPUT_FILTER = filters.TEXT & ~filters.COMMAND & ~filters.Regex(REPLY_KEYBOARD_PATTERN)
 
 TEXTS = {
     "ru": {
@@ -75,6 +88,14 @@ TEXTS = {
         "btn_cancel": "❌ Отмена",
         "btn_submit": "✅ Отправить заявку",
         "btn_main_menu": "🏠 Главное меню",
+        "btn_back_to_menu": "🏠 В меню",
+        "reply_language": "🇷🇺 Язык",
+        "reply_menu": "🏠 Меню",
+        "reply_question": "❓ Задать вопрос",
+        "reply_create": "📝 Создать",
+        "start_welcome": "👋 Привет! Я бот FluentFable.\n\nКнопки быстрого доступа всегда внизу. Сменить язык можно кнопкой «🇷🇺 Язык».",
+        "language_switched": "🇷🇺 Язык изменён на русский.",
+        "choose_service": "Что создаём?",
         "btn_back": "⬅️ Назад",
         "btn_refresh": "🔄 Обновить",
         "btn_admin_orders": "📋 Заявки",
@@ -96,6 +117,7 @@ TEXTS = {
         "cannot_cancel": "Эту заявку уже нельзя отменить.",
         "question_prompt": "Напиши свой вопрос одним сообщением.",
         "question_sent": "Вопрос отправлен. Я отвечу тебе в чате.",
+        "question_error": "Не удалось отправить вопрос. Попробуй ещё раз позже или напиши напрямую: {contact}",
         "help": "Я принимаю заявки на сайты и Telegram-ботов.\n\nВыбери услугу в главном меню или свяжись со мной напрямую: {contact}",
         "empty_input": "Ответ не может быть пустым.",
         "cancelled": "Действие отменено.",
@@ -117,7 +139,7 @@ TEXTS = {
         "btn_status_in_progress": "⏳ В обработке",
         "btn_status_done": "✅ Завершена",
         "admin_new_order": "🔔 <b>Новая заявка #{order_id}</b>\n\n<b>Клиент:</b> {username}\n<b>ID:</b> <code>{user_id}</code>\n<b>Услуга:</b> {service}\n<b>Тип проекта:</b> {project_type}\n<b>Бюджет:</b> {budget}\n<b>Описание:</b> {description}\n<b>Срок:</b> {deadline}",
-        "admin_new_question": "❓ <b>Новый вопрос</b>\n\n<b>Клиент:</b> {username}\n<b>ID:</b> <code>{user_id}</code>\n\n{question}",
+        "admin_new_question": "❓ <b>Новый вопрос</b>\n\n<b>Клиент:</b> {username}\n<b>ID:</b> <code>{user_id}</code>\n<b>Время:</b> {created_at} UTC\n\n{question}",
     },
     "en": {
         "choose_language": "Choose your language / Выбери язык:",
@@ -130,6 +152,14 @@ TEXTS = {
         "btn_cancel": "❌ Cancel",
         "btn_submit": "✅ Submit request",
         "btn_main_menu": "🏠 Main menu",
+        "btn_back_to_menu": "🏠 Back to menu",
+        "reply_language": "🇬🇧 Language",
+        "reply_menu": "🏠 Menu",
+        "reply_question": "❓ Ask a question",
+        "reply_create": "📝 Create",
+        "start_welcome": "👋 Hi! I'm FluentFable Bot.\n\nThe quick-access buttons are always below. Switch language with «🇬🇧 Language».",
+        "language_switched": "🇬🇧 Language switched to English.",
+        "choose_service": "What should we build?",
         "btn_back": "⬅️ Back",
         "btn_refresh": "🔄 Refresh",
         "btn_admin_orders": "📋 Orders",
@@ -151,6 +181,7 @@ TEXTS = {
         "cannot_cancel": "This request can no longer be cancelled.",
         "question_prompt": "Send your question in one message.",
         "question_sent": "Your question has been sent. I will reply in this chat.",
+        "question_error": "Could not send the question. Try again later or contact me directly: {contact}",
         "help": "I take requests for websites and Telegram bots.\n\nChoose a service in the main menu or contact me directly: {contact}",
         "empty_input": "The answer can't be empty.",
         "cancelled": "Action cancelled.",
@@ -172,7 +203,7 @@ TEXTS = {
         "btn_status_in_progress": "⏳ In progress",
         "btn_status_done": "✅ Completed",
         "admin_new_order": "🔔 <b>New request #{order_id}</b>\n\n<b>Client:</b> {username}\n<b>ID:</b> <code>{user_id}</code>\n<b>Service:</b> {service}\n<b>Project type:</b> {project_type}\n<b>Budget:</b> {budget}\n<b>Description:</b> {description}\n<b>Deadline:</b> {deadline}",
-        "admin_new_question": "❓ <b>New question</b>\n\n<b>Client:</b> {username}\n<b>ID:</b> <code>{user_id}</code>\n\n{question}",
+        "admin_new_question": "❓ <b>New question</b>\n\n<b>Client:</b> {username}\n<b>ID:</b> <code>{user_id}</code>\n<b>Time:</b> {created_at} UTC\n\n{question}",
     },
 }
 
@@ -326,6 +357,23 @@ def set_order_status(order_id, status):
         return cursor.rowcount > 0
 
 
+def get_reply_keyboard(lang):
+    return ReplyKeyboardMarkup(
+        [
+            [
+                KeyboardButton(tr(lang, "reply_language")),
+                KeyboardButton(tr(lang, "reply_menu")),
+            ],
+            [
+                KeyboardButton(tr(lang, "reply_question")),
+                KeyboardButton(tr(lang, "reply_create")),
+            ],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
+
 def main_menu_keyboard(lang, user_id):
     rows = [
         [
@@ -344,10 +392,14 @@ def menu_button(lang):
     return InlineKeyboardButton(tr(lang, "btn_main_menu"), callback_data="menu:main")
 
 
+def back_to_menu_button(lang):
+    return InlineKeyboardButton(tr(lang, "btn_back_to_menu"), callback_data="menu:main")
+
+
 def cancel_keyboard(lang):
     return InlineKeyboardMarkup(
         [
-            [menu_button(lang)],
+            [back_to_menu_button(lang)],
             [InlineKeyboardButton(tr(lang, "btn_cancel"), callback_data="flow:cancel")],
         ]
     )
@@ -357,10 +409,33 @@ def summary_keyboard(lang):
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton(tr(lang, "btn_submit"), callback_data="order:submit")],
-            [menu_button(lang)],
+            [back_to_menu_button(lang)],
             [InlineKeyboardButton(tr(lang, "btn_cancel"), callback_data="flow:cancel")],
         ]
     )
+
+
+def service_keyboard(lang):
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(tr(lang, "btn_site"), callback_data="menu:site"),
+                InlineKeyboardButton(tr(lang, "btn_bot"), callback_data="menu:bot"),
+            ],
+            [back_to_menu_button(lang)],
+        ]
+    )
+
+
+def remember_menu(context, message):
+    if message is not None:
+        context.user_data["menu_chat_id"] = message.chat.id
+        context.user_data["menu_message_id"] = message.message_id
+
+
+def clear_menu(context):
+    context.user_data.pop("menu_chat_id", None)
+    context.user_data.pop("menu_message_id", None)
 
 
 async def safe_edit(query, text, reply_markup=None):
@@ -377,7 +452,7 @@ async def safe_edit(query, text, reply_markup=None):
 async def send_admin_notification(context, text, order_id=None):
     if not ADMIN_ID:
         logger.warning("ADMIN_CHAT_ID is not set; notification was not sent")
-        return
+        return False
     reply_markup = None
     if order_id is not None:
         reply_markup = InlineKeyboardMarkup(
@@ -397,8 +472,10 @@ async def send_admin_notification(context, text, order_id=None):
             parse_mode=ParseMode.HTML,
             reply_markup=reply_markup,
         )
+        return True
     except TelegramError:
         logger.exception("Could not send admin notification")
+        return False
 
 
 def build_my_orders(user_id, lang):
@@ -445,10 +522,7 @@ def build_admin_panel(lang):
     keyboard = InlineKeyboardMarkup(
         [
             [InlineKeyboardButton(tr(lang, "btn_admin_orders"), callback_data="adm:list:0")],
-            [
-                InlineKeyboardButton(tr(lang, "btn_refresh"), callback_data="adm:panel"),
-                menu_button(lang),
-            ],
+            [InlineKeyboardButton(tr(lang, "btn_refresh"), callback_data="adm:panel")],
         ]
     )
     return text, keyboard
@@ -500,10 +574,7 @@ def build_admin_list(page, lang):
     if navigation:
         buttons.append(navigation)
     buttons.append(
-        [
-            InlineKeyboardButton(tr(lang, "btn_admin"), callback_data="adm:panel"),
-            menu_button(lang),
-        ]
+        [InlineKeyboardButton(tr(lang, "btn_admin"), callback_data="adm:panel")]
     )
     return text, InlineKeyboardMarkup(buttons)
 
@@ -563,16 +634,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("order", None)
     context.user_data.pop("question", None)
     lang = get_lang(context)
-    keyboard = InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton("🇷🇺 Русский", callback_data="lang:ru"),
-                InlineKeyboardButton("🇬🇧 English", callback_data="lang:en"),
-            ],
-            [menu_button(lang)],
-        ]
+    await update.effective_message.reply_text(
+        tr(lang, "start_welcome"),
+        reply_markup=get_reply_keyboard(lang),
+        parse_mode=ParseMode.HTML,
     )
-    await update.effective_message.reply_text(tr(lang, "choose_language"), reply_markup=keyboard)
+    context.user_data["reply_keyboard_shown"] = True
+    await open_main_menu(update, context)
 
 
 async def start_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -585,28 +653,79 @@ async def choose_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     lang = query.data.split(":", 1)[1]
     context.user_data["lang"] = lang
+    await safe_edit(query, tr(lang, "main_menu"), main_menu_keyboard(lang, update.effective_user.id))
+    remember_menu(context, query.message)
+    await query.message.reply_text(
+        tr(lang, "language_switched"),
+        reply_markup=get_reply_keyboard(lang),
+    )
+    context.user_data["reply_keyboard_shown"] = True
+
+
+async def toggle_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    current_lang = get_lang(context)
+    lang = "en" if current_lang == "ru" else "ru"
+    context.user_data["lang"] = lang
+    await update.effective_message.reply_text(
+        tr(lang, "language_switched"),
+        reply_markup=get_reply_keyboard(lang),
+    )
+    context.user_data["reply_keyboard_shown"] = True
+    chat_id = context.user_data.get("menu_chat_id")
+    message_id = context.user_data.get("menu_message_id")
+    if chat_id and message_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=tr(lang, "main_menu"),
+                reply_markup=main_menu_keyboard(lang, update.effective_user.id),
+                parse_mode=ParseMode.HTML,
+            )
+        except TelegramError:
+            pass
+
+
+async def show_create_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("order", None)
     context.user_data.pop("question", None)
-    await safe_edit(query, tr(lang, "main_menu"), main_menu_keyboard(lang, update.effective_user.id))
+    lang = get_lang(context)
+    await update.effective_message.reply_text(
+        tr(lang, "choose_service"),
+        reply_markup=service_keyboard(lang),
+        parse_mode=ParseMode.HTML,
+    )
+    return ConversationHandler.END
 
 
 async def open_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("order", None)
     context.user_data.pop("question", None)
     lang = get_lang(context)
-    if update.callback_query:
-        query = update.callback_query
+    query = update.callback_query
+    if query is not None:
         await query.answer()
+    if not context.user_data.get("reply_keyboard_shown"):
+        await update.effective_message.reply_text(
+            tr(lang, "start_welcome"),
+            reply_markup=get_reply_keyboard(lang),
+            parse_mode=ParseMode.HTML,
+        )
+        context.user_data["reply_keyboard_shown"] = True
+    if query is not None:
         await safe_edit(
             query,
             tr(lang, "main_menu"),
             main_menu_keyboard(lang, update.effective_user.id),
         )
+        if query.message is not None:
+            remember_menu(context, query.message)
     else:
-        await update.effective_message.reply_text(
+        sent = await update.effective_message.reply_text(
             tr(lang, "main_menu"),
             reply_markup=main_menu_keyboard(lang, update.effective_user.id),
         )
+        remember_menu(context, sent)
     return ConversationHandler.END
 
 
@@ -616,6 +735,7 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "menu:main":
         await open_main_menu(update, context)
     elif query.data == "menu:orders":
+        clear_menu(context)
         await query.answer()
         text, keyboard = build_my_orders(update.effective_user.id, lang)
         await safe_edit(query, text, keyboard)
@@ -623,9 +743,17 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not is_admin(update.effective_user.id):
             await query.answer(tr(lang, "admin_only"), show_alert=True)
             return
+        clear_menu(context)
         await query.answer()
         text, keyboard = build_admin_panel(lang)
         await safe_edit(query, text, keyboard)
+
+
+async def menu_flow_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.pop("order", None)
+    context.user_data.pop("question", None)
+    await menu_router(update, context)
+    return ConversationHandler.END
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -639,6 +767,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cancel_client_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    clear_menu(context)
     lang = get_lang(context)
     order_id = int(query.data.rsplit(":", 1)[1])
     order = get_order(order_id)
@@ -658,6 +787,7 @@ async def cancel_client_order(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def admin_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    clear_menu(context)
     lang = get_lang(context)
     if not is_admin(update.effective_user.id):
         await query.answer(tr(lang, "admin_only"), show_alert=True)
@@ -703,6 +833,7 @@ async def admin_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    clear_menu(context)
     lang = get_lang(context)
     service = query.data.split(":", 1)[1]
     context.user_data["order"] = {"service": service}
@@ -867,8 +998,23 @@ async def submit_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    clear_menu(context)
+    context.user_data.pop("order", None)
+    context.user_data.pop("question", None)
     lang = get_lang(context)
     await safe_edit(query, tr(lang, "question_prompt"), cancel_keyboard(lang))
+    return QUESTION
+
+
+async def start_question_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.pop("order", None)
+    context.user_data.pop("question", None)
+    lang = get_lang(context)
+    await update.effective_message.reply_text(
+        tr(lang, "question_prompt"),
+        reply_markup=cancel_keyboard(lang),
+        parse_mode=ParseMode.HTML,
+    )
     return QUESTION
 
 
@@ -893,9 +1039,17 @@ async def receive_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "admin_new_question",
         username=username_text(user.username or ""),
         user_id=user.id,
+        created_at=datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M"),
         question=esc(value),
     )
-    await send_admin_notification(context, text)
+    sent = await send_admin_notification(context, text)
+    if not sent:
+        await update.message.reply_text(
+            tr(lang, "question_error", contact=contact_link()),
+            reply_markup=cancel_keyboard(lang),
+            parse_mode=ParseMode.HTML,
+        )
+        return QUESTION
     await update.message.reply_text(
         tr(lang, "question_sent"),
         reply_markup=InlineKeyboardMarkup([[menu_button(lang)]]),
@@ -907,19 +1061,30 @@ async def cancel_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("order", None)
     context.user_data.pop("question", None)
     lang = get_lang(context)
-    if update.callback_query:
-        query = update.callback_query
+    query = update.callback_query
+    if query is not None:
         await query.answer()
+    if not context.user_data.get("reply_keyboard_shown"):
+        await update.effective_message.reply_text(
+            tr(lang, "start_welcome"),
+            reply_markup=get_reply_keyboard(lang),
+            parse_mode=ParseMode.HTML,
+        )
+        context.user_data["reply_keyboard_shown"] = True
+    if query is not None:
         await safe_edit(
             query,
             f"{tr(lang, 'cancelled')}\n\n{tr(lang, 'main_menu')}",
             main_menu_keyboard(lang, update.effective_user.id),
         )
+        if query.message is not None:
+            remember_menu(context, query.message)
     else:
-        await update.effective_message.reply_text(
+        sent = await update.effective_message.reply_text(
             tr(lang, "main_menu"),
             reply_markup=main_menu_keyboard(lang, update.effective_user.id),
         )
+        remember_menu(context, sent)
     return ConversationHandler.END
 
 
@@ -941,7 +1106,7 @@ async def post_init(application: Application):
     try:
         await application.bot.set_my_commands(
             [
-                BotCommand("start", "Выбрать язык / Choose language"),
+                BotCommand("start", "Запустить бота / Start bot"),
                 BotCommand("menu", "Главное меню / Main menu"),
                 BotCommand("help", "Помощь / Help"),
                 BotCommand("cancel", "Отменить действие / Cancel"),
@@ -960,18 +1125,23 @@ def main():
         entry_points=[
             CallbackQueryHandler(start_order, pattern=r"^menu:(?:site|bot)$"),
             CallbackQueryHandler(start_question, pattern=r"^menu:question$"),
+            MessageHandler(filters.Regex(REPLY_MENU_PATTERN), open_main_menu),
+            MessageHandler(filters.Regex(REPLY_CREATE_PATTERN), show_create_menu),
+            MessageHandler(filters.Regex(REPLY_QUESTION_PATTERN), start_question_message),
         ],
         states={
-            PROJECT_TYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_project_type)],
-            BUDGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_budget)],
-            DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_description)],
-            DEADLINE: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_deadline)],
+            PROJECT_TYPE: [MessageHandler(TEXT_INPUT_FILTER, set_project_type)],
+            BUDGET: [MessageHandler(TEXT_INPUT_FILTER, set_budget)],
+            DESCRIPTION: [MessageHandler(TEXT_INPUT_FILTER, set_description)],
+            DEADLINE: [MessageHandler(TEXT_INPUT_FILTER, set_deadline)],
             CONFIRM: [CallbackQueryHandler(submit_order, pattern=r"^order:submit$")],
-            QUESTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_question)],
+            QUESTION: [MessageHandler(TEXT_INPUT_FILTER, receive_question)],
         },
         fallbacks=[
             CallbackQueryHandler(open_main_menu, pattern=r"^menu:main$"),
+            CallbackQueryHandler(menu_flow_router, pattern=r"^menu:(?:orders|admin)$"),
             CallbackQueryHandler(cancel_flow, pattern=r"^flow:cancel$"),
+            MessageHandler(filters.Regex(REPLY_LANGUAGE_PATTERN), toggle_language),
             CommandHandler("menu", open_main_menu),
             CommandHandler("cancel", cancel_flow),
             CommandHandler("start", start_flow),
@@ -986,6 +1156,7 @@ def main():
     application.add_handler(CommandHandler("menu", open_main_menu))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("cancel", cancel_flow))
+    application.add_handler(MessageHandler(filters.Regex(REPLY_LANGUAGE_PATTERN), toggle_language))
     application.add_handler(CallbackQueryHandler(choose_language, pattern=r"^lang:(?:ru|en)$"))
     application.add_handler(CallbackQueryHandler(menu_router, pattern=r"^menu:(?:orders|admin|main)$"))
     application.add_handler(CallbackQueryHandler(cancel_client_order, pattern=r"^my:cancel:\d+$"))
