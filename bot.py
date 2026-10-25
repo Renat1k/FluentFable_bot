@@ -1,3 +1,4 @@
+import asyncio
 import html
 import logging
 import os
@@ -69,11 +70,13 @@ MAX_DESCRIPTION = 800
 MAX_DEADLINE = 100
 MAX_QUESTION = 2000
 ADMIN_CALLBACK_PATTERN = r"^adm:(?:panel|list:\d+|view:\d+:\d+|set:\d+:(?:new|in_progress|done):\d+)$"
-REPLY_LANGUAGE_PATTERN = r"^(?:🇷🇺 Язык|🇬🇧 Language)$"
+LANGUAGE_ORDER = ("ru", "uk", "en")
+LANGUAGE_SWITCH_DELAY = 0.1
+REPLY_LANGUAGE_PATTERN = r"^(?:🏳️ Язык|🇺🇦 Мова|🇬🇧 Language)$"
 REPLY_MENU_PATTERN = r"^(?:🏠 Меню|🏠 Menu)$"
-REPLY_QUESTION_PATTERN = r"^(?:❓ Задать вопрос|❓ Ask a question)$"
-REPLY_CREATE_PATTERN = r"^(?:📝 Создать|📝 Create)$"
-REPLY_KEYBOARD_PATTERN = r"^(?:🇷🇺 Язык|🇬🇧 Language|🏠 Меню|🏠 Menu|❓ Задать вопрос|❓ Ask a question|📝 Создать|📝 Create)$"
+REPLY_QUESTION_PATTERN = r"^(?:❓ Задать вопрос|❓ Задати питання|❓ Ask a question)$"
+REPLY_CREATE_PATTERN = r"^(?:📝 Создать|📝 Створити|📝 Create)$"
+REPLY_KEYBOARD_PATTERN = r"^(?:🏳️ Язык|🇺🇦 Мова|🇬🇧 Language|🏠 Меню|🏠 Menu|❓ Задать вопрос|❓ Задати питання|❓ Ask a question|📝 Создать|📝 Створити|📝 Create)$"
 TEXT_INPUT_FILTER = filters.TEXT & ~filters.COMMAND & ~filters.Regex(REPLY_KEYBOARD_PATTERN)
 
 TEXTS = {
@@ -89,12 +92,12 @@ TEXTS = {
         "btn_submit": "✅ Отправить заявку",
         "btn_main_menu": "🏠 Главное меню",
         "btn_back_to_menu": "🏠 В меню",
-        "reply_language": "🇷🇺 Язык",
+        "reply_language": "🏳️ Язык",
         "reply_menu": "🏠 Меню",
         "reply_question": "❓ Задать вопрос",
         "reply_create": "📝 Создать",
-        "start_welcome": "👋 Привет! Я бот FluentFable.\n\nКнопки быстрого доступа всегда внизу. Сменить язык можно кнопкой «🇷🇺 Язык».",
-        "language_switched": "🇷🇺 Язык изменён на русский.",
+        "start_welcome": "👋 Привет! Я бот FluentFable.\n\nКнопки быстрого доступа всегда внизу. Сменить язык можно кнопкой «🏳️ Язык».",
+        "language_switched": "🏳️ Язык изменён на русский.",
         "choose_service": "Что создаём?",
         "btn_back": "⬅️ Назад",
         "btn_refresh": "🔄 Обновить",
@@ -204,6 +207,70 @@ TEXTS = {
         "btn_status_done": "✅ Completed",
         "admin_new_order": "🔔 <b>New request #{order_id}</b>\n\n<b>Client:</b> {username}\n<b>ID:</b> <code>{user_id}</code>\n<b>Service:</b> {service}\n<b>Project type:</b> {project_type}\n<b>Budget:</b> {budget}\n<b>Description:</b> {description}\n<b>Deadline:</b> {deadline}",
         "admin_new_question": "❓ <b>New question</b>\n\n<b>Client:</b> {username}\n<b>ID:</b> <code>{user_id}</code>\n<b>Time:</b> {created_at} UTC\n\n{question}",
+    },
+    "uk": {
+        "choose_language": "Обери мову / Choose your language:",
+        "main_menu": "Головне меню. Що тобі потрібно?",
+        "btn_site": "💻 Створити сайт",
+        "btn_bot": "🤖 Створити Telegram-бота",
+        "btn_question": "❓ Задати питання",
+        "btn_orders": "📋 Мої замовлення",
+        "btn_admin": "⚙️ Адмін-панель",
+        "btn_cancel": "❌ Скасувати",
+        "btn_submit": "✅ Надіслати заявку",
+        "btn_main_menu": "🏠 Головне меню",
+        "btn_back_to_menu": "🏠 У меню",
+        "reply_language": "🇺🇦 Мова",
+        "reply_menu": "🏠 Меню",
+        "reply_question": "❓ Задати питання",
+        "reply_create": "📝 Створити",
+        "start_welcome": "👋 Привіт! Я бот FluentFable.\n\nКнопки швидкого доступу завжди внизу. Змінити мову можна кнопкою «🇺🇦 Мова».",
+        "language_switched": "🇺🇦 Мову змінено на українську.",
+        "choose_service": "Що створюємо?",
+        "btn_back": "⬅️ Назад",
+        "btn_refresh": "🔄 Оновити",
+        "btn_admin_orders": "📋 Заявки",
+        "btn_open_order": "⚙️ Відкрити заявку",
+        "service_site": "Сайт",
+        "service_bot": "Telegram-бот",
+        "step_project_type": "Крок 1/4. <b>{service}</b>\n\nЯкий тип проєкту? Напиши коротко.",
+        "step_budget": "Крок 2/4. Вкажи бюджет (суму або діапазон).",
+        "step_description": "Крок 3/4. Опиши завдання.",
+        "step_deadline": "Крок 4/4. Який термін?",
+        "summary": "Перевір заявку:\n\n<b>Послуга:</b> {service}\n<b>Тип проєкту:</b> {project_type}\n<b>Бюджет:</b> {budget}\n<b>Опис:</b> {description}\n<b>Термін:</b> {deadline}",
+        "order_success": "Дякую! Заявку надіслано. Я зв'яжуся з тобою.\n\nЗв'язатися безпосередньо: {contact}",
+        "order_cancelled": "Заявку скасовано.",
+        "no_orders": "У тебе ще немає заявок.",
+        "orders_title": "<b>Твої заявки:</b>",
+        "order_line": "<b>#{order_id}</b> · {service}\nСтатус: {status}\nБюджет: {budget}\nСтворено: {created_at}",
+        "cancel_order_btn": "❌ Скасувати #{order_id}",
+        "order_not_found": "Заявку не знайдено.",
+        "cannot_cancel": "Цю заявку вже не можна скасувати.",
+        "question_prompt": "Напиши своє питання одним повідомленням.",
+        "question_sent": "Питання надіслано. Я відповім тобі в чаті.",
+        "question_error": "Не вдалося надіслати питання. Спробуй ще раз пізніше або напиши безпосередньо: {contact}",
+        "help": "Я приймаю заявки на сайти й Telegram-ботів.\n\nОбери послугу в головному меню або зв'яжися зі мною безпосередньо: {contact}",
+        "empty_input": "Відповідь не може бути порожньою.",
+        "cancelled": "Дію скасовано.",
+        "too_long": "Занадто довго. Максимум {limit} символів.",
+        "admin_only": "Доступ заборонено.",
+        "admin_panel": "⚙️ <b>Адмін-панель</b>\n\n🆕 Нові: {new}\n⏳ В обробці: {in_progress}\n✅ Завершено: {done}\n\nУсього заявок: {total}",
+        "admin_orders_title": "<b>Заявки</b> · стор. {page}/{pages}",
+        "admin_orders_empty": "Заявок поки немає.",
+        "admin_order_line": "<b>#{order_id}</b> · {service} · {status}\n{username} · {created_at}",
+        "admin_order_btn": "#{order_id} · {service} · {status}",
+        "admin_order_card": "<b>Заявка #{order_id}</b>\n\n<b>Клієнт:</b> {username}\n<b>ID:</b> <code>{user_id}</code>\n<b>Послуга:</b> {service}\n<b>Тип проєкту:</b> {project_type}\n<b>Бюджет:</b> {budget}\n<b>Опис:</b> {description}\n<b>Термін:</b> {deadline}\n<b>Статус:</b> {status}\n<b>Створено:</b> {created_at}",
+        "admin_order_missing": "Заявку не знайдено.",
+        "admin_status_updated": "Статус змінено: {status}.",
+        "status_new": "Нова",
+        "status_in_progress": "В обробці",
+        "status_done": "Завершена",
+        "status_cancelled": "Скасована",
+        "btn_status_new": "🆕 Нова",
+        "btn_status_in_progress": "⏳ В обробці",
+        "btn_status_done": "✅ Завершена",
+        "admin_new_order": "🔔 <b>Нова заявка #{order_id}</b>\n\n<b>Клієнт:</b> {username}\n<b>ID:</b> <code>{user_id}</code>\n<b>Послуга:</b> {service}\n<b>Тип проєкту:</b> {project_type}\n<b>Бюджет:</b> {budget}\n<b>Опис:</b> {description}\n<b>Термін:</b> {deadline}",
+        "admin_new_question": "❓ <b>Нове питання</b>\n\n<b>Клієнт:</b> {username}\n<b>ID:</b> <code>{user_id}</code>\n<b>Час:</b> {created_at} UTC\n\n{question}",
     },
 }
 
@@ -523,6 +590,7 @@ def build_admin_panel(lang):
         [
             [InlineKeyboardButton(tr(lang, "btn_admin_orders"), callback_data="adm:list:0")],
             [InlineKeyboardButton(tr(lang, "btn_refresh"), callback_data="adm:panel")],
+            [back_to_menu_button(lang)],
         ]
     )
     return text, keyboard
@@ -664,13 +732,15 @@ async def choose_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def toggle_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_lang = get_lang(context)
-    lang = "en" if current_lang == "ru" else "ru"
+    index = LANGUAGE_ORDER.index(current_lang) if current_lang in LANGUAGE_ORDER else 0
+    lang = LANGUAGE_ORDER[(index + 1) % len(LANGUAGE_ORDER)]
     context.user_data["lang"] = lang
     await update.effective_message.reply_text(
         tr(lang, "language_switched"),
         reply_markup=get_reply_keyboard(lang),
     )
     context.user_data["reply_keyboard_shown"] = True
+    await asyncio.sleep(LANGUAGE_SWITCH_DELAY)
     chat_id = context.user_data.get("menu_chat_id")
     message_id = context.user_data.get("menu_message_id")
     if chat_id and message_id:
@@ -1157,7 +1227,7 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("cancel", cancel_flow))
     application.add_handler(MessageHandler(filters.Regex(REPLY_LANGUAGE_PATTERN), toggle_language))
-    application.add_handler(CallbackQueryHandler(choose_language, pattern=r"^lang:(?:ru|en)$"))
+    application.add_handler(CallbackQueryHandler(choose_language, pattern=r"^lang:(?:ru|uk|en)$"))
     application.add_handler(CallbackQueryHandler(menu_router, pattern=r"^menu:(?:orders|admin|main)$"))
     application.add_handler(CallbackQueryHandler(cancel_client_order, pattern=r"^my:cancel:\d+$"))
     application.add_handler(CallbackQueryHandler(admin_router, pattern=ADMIN_CALLBACK_PATTERN))
